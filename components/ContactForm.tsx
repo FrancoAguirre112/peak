@@ -277,7 +277,7 @@ ${formData.message}
             <div>
               <button
                 type="submit"
-                className="bg-red-600 hover:bg-red-700 shadow-sm px-8 py-3 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 w-full sm:w-auto font-semibold text-white text-base transition-colors"
+                className="bg-red-600 hover:bg-red-700 shadow-sm px-8 py-3 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 w-full sm:w-auto font-semibold text-white text-base transition-colors hover:cursor-pointer"
               >
                 Enviar solicitud
               </button>
