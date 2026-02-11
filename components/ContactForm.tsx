@@ -37,12 +37,13 @@ const ContactForm = () => {
     message: "",
   });
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   // State to track if the user has started interacting with the form
   const [formStarted, setFormStarted] = useState(false);
 
   // A single handler to update state for any form field change
   const handleChange = (
-    e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = e.target;
     setFormData((prevData) => ({
@@ -60,7 +61,7 @@ const ContactForm = () => {
   };
 
   // Handler for the form submission
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault(); // Prevent the default form submission behavior
 
     // Simple validation to ensure all fields are filled
@@ -72,10 +73,39 @@ const ContactForm = () => {
       return;
     }
 
+    setIsSubmitting(true);
+
     // --- GTM Event Tracking ---
     // Fire the 'form_submit' event when validation passes
     gtmEvent("form_submit", { form_name: "contact_form" });
 
+    // --- Send to Google Sheets ---
+    try {
+      // REPLACE THIS URL with your own Google Apps Script Web App URL
+      const GOOGLE_SCRIPT_URL =
+        "https://script.google.com/macros/s/AKfycbyhvjaK1sz_hGHW4UwGBdulVo-ltLmt6KIEtBXFYwzfvybN8-cVUmpQkN-9mMhzKd5n/exec";
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: "POST",
+        // 'no-cors' is needed when posting from the browser to Google Scripts directly
+        // Note: You won't get a readable JSON response in 'no-cors' mode, but the data will send.
+        mode: "no-cors",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
+
+      // Optional: Clear form after successful submission logic if you weren't redirecting
+      // setFormData({ ...EmptyState });
+    } catch (error) {
+      console.error("Error sending to Google Sheets", error);
+      // You might want to decide if you still want to open WhatsApp if this fails
+    } finally {
+      setIsSubmitting(false);
+    }
+
+    // --- WhatsApp Logic (Existing) ---
     // The target WhatsApp number
     const whatsappNumber = "5491157671405";
 
@@ -277,9 +307,10 @@ ${formData.message}
             <div>
               <button
                 type="submit"
-                className="bg-red-600 hover:bg-red-700 shadow-sm px-8 py-3 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 w-full sm:w-auto font-semibold text-white text-base transition-colors hover:cursor-pointer"
+                disabled={isSubmitting}
+                className={`bg-red-600 hover:bg-red-700 shadow-sm px-8 py-3 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 w-full sm:w-auto font-semibold text-white text-base transition-colors hover:cursor-pointer ${isSubmitting ? "opacity-70 cursor-wait" : ""}`}
               >
-                Enviar solicitud
+                {isSubmitting ? "Enviando..." : "Enviar solicitud"}
               </button>
             </div>
           </form>
