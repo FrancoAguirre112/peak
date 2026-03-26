@@ -132,6 +132,7 @@ const ContactForm = () => {
 ----------------------------------
 *Consulta:*
 ${formData.message}
+${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
     `.trim();
 
     // Encode the message for the URL
