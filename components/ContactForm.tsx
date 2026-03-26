@@ -1,7 +1,8 @@
 // components/ContactForm.tsx
 "use client";
 
-import { useState, type FormEvent, type ChangeEvent } from "react";
+import { useState, useRef, type FormEvent, type ChangeEvent } from "react";
+import { useSearchParams } from "next/navigation";
 
 // Define the structure of our form data for TypeScript
 interface FormData {
@@ -26,6 +27,15 @@ const gtmEvent = (eventName: string, eventData: Record<string, any>) => {
 };
 
 const ContactForm = () => {
+  const searchParams = useSearchParams();
+
+  // Read UTM params once and store in a ref (they don't change)
+  const utmData = useRef({
+    campaign: searchParams.get("utm_campaign") || searchParams.get("campaign_name") || "",
+    adset: searchParams.get("utm_content") || searchParams.get("adset_name") || "",
+    ad: searchParams.get("utm_term") || searchParams.get("ad_name") || "",
+  });
+
   // State to hold the form values
   const [formData, setFormData] = useState<FormData>({
     fullName: "",
@@ -83,7 +93,7 @@ const ContactForm = () => {
     try {
       // REPLACE THIS URL with your own Google Apps Script Web App URL
       const GOOGLE_SCRIPT_URL =
-        "https://script.google.com/macros/s/AKfycbyhvjaK1sz_hGHW4UwGBdulVo-ltLmt6KIEtBXFYwzfvybN8-cVUmpQkN-9mMhzKd5n/exec";
+        "https://script.google.com/macros/s/AKfycbz0dtuNqOYKMTmwtTet_QB2l0gjHDQWd6_lChSiBILarhcn_t-xzyEieUIayNIwb1g/exec";
 
       await fetch(GOOGLE_SCRIPT_URL, {
         method: "POST",
@@ -93,7 +103,7 @@ const ContactForm = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, ...utmData.current }),
       });
 
       // Optional: Clear form after successful submission logic if you weren't redirecting
