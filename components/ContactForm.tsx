@@ -89,31 +89,27 @@ const ContactForm = () => {
     // Fire the 'form_submit' event when validation passes
     gtmEvent("form_submit", { form_name: "contact_form" });
 
-    // --- Send to Google Sheets ---
-    try {
-      // REPLACE THIS URL with your own Google Apps Script Web App URL
-      const GOOGLE_SCRIPT_URL =
-        "https://script.google.com/macros/s/AKfycbz0dtuNqOYKMTmwtTet_QB2l0gjHDQWd6_lChSiBILarhcn_t-xzyEieUIayNIwb1g/exec";
+    // --- Send to Google Sheets (fire-and-forget) ---
+    // Do NOT await this: the Google Apps Script response can take a few
+    // seconds, and blocking on it delays opening WhatsApp. 'keepalive'
+    // lets the request finish even though we move on immediately.
+    const GOOGLE_SCRIPT_URL =
+      "https://script.google.com/macros/s/AKfycbz0dtuNqOYKMTmwtTet_QB2l0gjHDQWd6_lChSiBILarhcn_t-xzyEieUIayNIwb1g/exec";
 
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: "POST",
-        // 'no-cors' is needed when posting from the browser to Google Scripts directly
-        // Note: You won't get a readable JSON response in 'no-cors' mode, but the data will send.
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ ...formData, ...utmData.current }),
-      });
-
-      // Optional: Clear form after successful submission logic if you weren't redirecting
-      // setFormData({ ...EmptyState });
-    } catch (error) {
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      // 'no-cors' is needed when posting from the browser to Google Scripts directly
+      mode: "no-cors",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...formData, ...utmData.current }),
+      keepalive: true,
+    }).catch((error) => {
       console.error("Error sending to Google Sheets", error);
-      // You might want to decide if you still want to open WhatsApp if this fails
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
+
+    setIsSubmitting(false);
 
     // --- WhatsApp Logic (Existing) ---
     // The target WhatsApp number
