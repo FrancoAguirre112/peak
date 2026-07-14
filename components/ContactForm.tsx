@@ -3,6 +3,7 @@
 
 import { useState, useRef, type FormEvent, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import { sendGAEvent } from "@next/third-parties/google";
 
 // Define the structure of our form data for TypeScript
 interface FormData {
@@ -24,6 +25,8 @@ const gtmEvent = (eventName: string, eventData: Record<string, any>) => {
       ...eventData,
     });
   }
+  // Send the same event to GA4 directly (gtag), independent of GTM
+  sendGAEvent("event", eventName, eventData);
 };
 
 const ContactForm = () => {
