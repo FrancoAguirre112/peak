@@ -50,7 +50,10 @@ const ContactForm = () => {
     message: "",
   });
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Last payload sent to Sheets/GA, to avoid logging the same lead twice
+  const lastSubmittedRef = useRef<string | null>(null);
+  // WhatsApp link shown after submit, as a fallback when window.open is blocked
+  const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null);
   // State to track if the user has started interacting with the form
   const [formStarted, setFormStarted] = useState(false);
 
@@ -86,33 +89,38 @@ const ContactForm = () => {
       return;
     }
 
-    setIsSubmitting(true);
+    const payload = JSON.stringify({ ...formData, ...utmData.current });
 
-    // --- GTM Event Tracking ---
-    // Fire the 'form_submit' event when validation passes
-    gtmEvent("form_submit", { form_name: "contact_form" });
+    // Users often tap again when WhatsApp doesn't open (e.g. in-app browsers
+    // from Instagram/Facebook ads). If the data is unchanged, just reopen
+    // WhatsApp without logging a duplicate lead or conversion.
+    if (lastSubmittedRef.current !== payload) {
+      lastSubmittedRef.current = payload;
 
-    // --- Send to Google Sheets (fire-and-forget) ---
-    // Do NOT await this: the Google Apps Script response can take a few
-    // seconds, and blocking on it delays opening WhatsApp. 'keepalive'
-    // lets the request finish even though we move on immediately.
-    const GOOGLE_SCRIPT_URL =
-      "https://script.google.com/macros/s/AKfycbz0dtuNqOYKMTmwtTet_QB2l0gjHDQWd6_lChSiBILarhcn_t-xzyEieUIayNIwb1g/exec";
+      // --- GTM Event Tracking ---
+      // Fire the 'form_submit' event when validation passes
+      gtmEvent("form_submit", { form_name: "contact_form" });
 
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: "POST",
-      // 'no-cors' is needed when posting from the browser to Google Scripts directly
-      mode: "no-cors",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ...formData, ...utmData.current }),
-      keepalive: true,
-    }).catch((error) => {
-      console.error("Error sending to Google Sheets", error);
-    });
+      // --- Send to Google Sheets (fire-and-forget) ---
+      // Do NOT await this: the Google Apps Script response can take a few
+      // seconds, and blocking on it delays opening WhatsApp. 'keepalive'
+      // lets the request finish even though we move on immediately.
+      const GOOGLE_SCRIPT_URL =
+        "https://script.google.com/macros/s/AKfycbz0dtuNqOYKMTmwtTet_QB2l0gjHDQWd6_lChSiBILarhcn_t-xzyEieUIayNIwb1g/exec";
 
-    setIsSubmitting(false);
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: "POST",
+        // 'no-cors' is needed when posting from the browser to Google Scripts directly
+        mode: "no-cors",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: payload,
+        keepalive: true,
+      }).catch((error) => {
+        console.error("Error sending to Google Sheets", error);
+      });
+    }
 
     // --- WhatsApp Logic (Existing) ---
     // The target WhatsApp number
@@ -138,10 +146,11 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
     const encodedMessage = encodeURIComponent(message);
 
     // Create the final WhatsApp URL
-    const whatsappUrl = `https://api.whatsapp.com/send/?phone=${whatsappNumber}&text=${encodedMessage}`;
+    const url = `https://api.whatsapp.com/send/?phone=${whatsappNumber}&text=${encodedMessage}`;
+    setWhatsappUrl(url);
 
     // Open the URL in a new browser tab
-    window.open(whatsappUrl, "_blank");
+    window.open(url, "_blank");
   };
 
   return (
@@ -317,12 +326,30 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
             <div>
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className={`bg-red-600 hover:bg-red-700 shadow-sm px-8 py-3 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 w-full sm:w-auto font-semibold text-white text-base transition-colors hover:cursor-pointer ${isSubmitting ? "opacity-70 cursor-wait" : ""}`}
+                className="bg-red-600 hover:bg-red-700 shadow-sm px-8 py-3 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 w-full sm:w-auto font-semibold text-white text-base transition-colors hover:cursor-pointer"
               >
-                {isSubmitting ? "Enviando..." : "Enviar solicitud"}
+                Enviar solicitud
               </button>
             </div>
+
+            {/* Confirmation + fallback link in case WhatsApp didn't open */}
+            {whatsappUrl && (
+              <p
+                role="status"
+                className="bg-green-50 p-4 border border-green-200 rounded-md text-green-800 text-sm"
+              >
+                ¡Recibimos tus datos! Si WhatsApp no se abrió,{" "}
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold underline"
+                >
+                  tocá acá para enviarnos tu consulta
+                </a>
+                .
+              </p>
+            )}
           </form>
 
           {/* Right Side: Contact Info */}
