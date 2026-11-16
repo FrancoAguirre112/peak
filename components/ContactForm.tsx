@@ -3,7 +3,13 @@
 
 import { useState, useRef, type FormEvent, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { sendGAEvent } from "@next/third-parties/google";
+
+declare global {
+  interface Window {
+    // GA4's gtag, bound to its own "gaDataLayer" (see app/layout.tsx)
+    gtag?: (...args: unknown[]) => void;
+  }
+}
 
 // Define the structure of our form data for TypeScript
 interface FormData {
@@ -25,8 +31,9 @@ const gtmEvent = (eventName: string, eventData: Record<string, any>) => {
       ...eventData,
     });
   }
-  // Send the same event to GA4 directly (gtag), independent of GTM
-  sendGAEvent("event", eventName, eventData);
+  // Send the same event to GA4 directly (gtag). It goes to GA4's own
+  // dataLayer, so GTM doesn't see it and the Meta tags fire only once.
+  if (typeof window !== "undefined") window.gtag?.("event", eventName, eventData);
 };
 
 const ContactForm = () => {
