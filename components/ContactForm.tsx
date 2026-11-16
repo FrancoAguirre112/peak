@@ -22,8 +22,29 @@ interface FormData {
   message: string;
 }
 
+type FieldName = keyof FormData;
+
+// Fields in the order they appear on screen (left column, right column,
+// message), so the first missing one is the one we scroll to.
+const FIELDS: { name: FieldName; label: string }[] = [
+  { name: "fullName", label: "Nombre y apellido" },
+  { name: "institution", label: "Colegio/Instituto/Club" },
+  { name: "phone", label: "Celular" },
+  { name: "inquirerType", label: "Quién realiza la consulta" },
+  { name: "location", label: "Localidad" },
+  { name: "email", label: "Mail" },
+  { name: "message", label: "Consulta" },
+];
+
+const FieldError = ({ name, show }: { name: FieldName; show?: boolean }) =>
+  show ? (
+    <p id={`${name}-error`} className="mt-1 font-medium text-red-600 text-sm">
+      Completá este campo
+    </p>
+  ) : null;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const gtmEvent = (eventName: string, eventData: Record<string, any>) => {
+const gtmEvent =(eventName: string, eventData: Record<string, any>) => {
   // Ensure dataLayer is available to prevent errors during SSR or if GTM fails to load
   if (typeof window !== "undefined" && window.dataLayer) {
     window.dataLayer.push({
@@ -63,6 +84,18 @@ const ContactForm = () => {
   const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null);
   // State to track if the user has started interacting with the form
   const [formStarted, setFormStarted] = useState(false);
+  // Fields left empty on the last submit attempt
+  const [errors, setErrors] = useState<Partial<Record<FieldName, boolean>>>({});
+  const missingLabels = FIELDS.filter((f) => errors[f.name]).map((f) => f.label);
+
+  // Red border + background and a11y wiring for a field left empty
+  const fieldProps = (name: FieldName, extra = "") => ({
+    "aria-invalid": errors[name] || undefined,
+    "aria-describedby": errors[name] ? `${name}-error` : undefined,
+    className: `shadow-sm p-2 border rounded-md w-full focus:border-red-500 focus:ring-red-500 ${
+      errors[name] ? "border-red-500 bg-red-50 ring-1 ring-red-500" : "border-gray-300"
+    } ${extra}`,
+  });
 
   // A single handler to update state for any form field change
   const handleChange = (
@@ -73,6 +106,10 @@ const ContactForm = () => {
       ...prevData,
       [name]: value,
     }));
+    // Clear the field's error as soon as the user fills it in
+    if (errors[name as FieldName] && value.trim() !== "") {
+      setErrors((prev) => ({ ...prev, [name]: false }));
+    }
   };
 
   // Triggers the 'form_start' event on the first interaction with any form field
@@ -87,14 +124,22 @@ const ContactForm = () => {
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault(); // Prevent the default form submission behavior
 
-    // Simple validation to ensure all fields are filled
-    if (
-      Object.values(formData).some((value) => value === "") ||
-      formData.inquirerType === ""
-    ) {
-      alert("Por favor, completa todos los campos.");
+    // Every field is required: mark the empty ones in red and take the user
+    // to the first one, instead of a generic alert that doesn't say which.
+    const missing = FIELDS.filter((f) => formData[f.name].trim() === "");
+    if (missing.length > 0) {
+      setErrors(Object.fromEntries(missing.map((f) => [f.name, true])));
+      const first = document.getElementById(missing[0].name);
+      first?.scrollIntoView({ behavior: "smooth", block: "center" });
+      first?.focus({ preventScroll: true });
+      // GA4 only (not GTM/Meta): how often and where people get stuck
+      window.gtag?.("event", "form_invalid", {
+        form_name: "contact_form",
+        missing_fields: missing.map((f) => f.name).join(","),
+      });
       return;
     }
+    setErrors({});
 
     const payload = JSON.stringify({ ...formData, ...utmData.current });
 
@@ -108,25 +153,33 @@ const ContactForm = () => {
       // Fire the 'form_submit' event when validation passes
       gtmEvent("form_submit", { form_name: "contact_form" });
 
-      // --- Send to Google Sheets (fire-and-forget) ---
-      // Do NOT await this: the Google Apps Script response can take a few
-      // seconds, and blocking on it delays opening WhatsApp. 'keepalive'
-      // lets the request finish even though we move on immediately.
+      // --- Send to Google Sheets ---
+      // WhatsApp opens right after this. On phones (above all inside the
+      // Instagram/Facebook in-app browser) leaving the page cancelled the old
+      // fire-and-forget fetch, so leads never reached the Sheet. sendBeacon is
+      // queued by the browser itself and survives the page going away. The
+      // body is the same text/plain JSON the fetch sent (no-cors drops the
+      // application/json header), so the Apps Script reads it unchanged.
       const GOOGLE_SCRIPT_URL =
         "https://script.google.com/macros/s/AKfycbz0dtuNqOYKMTmwtTet_QB2l0gjHDQWd6_lChSiBILarhcn_t-xzyEieUIayNIwb1g/exec";
 
-      fetch(GOOGLE_SCRIPT_URL, {
-        method: "POST",
-        // 'no-cors' is needed when posting from the browser to Google Scripts directly
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: payload,
-        keepalive: true,
-      }).catch((error) => {
-        console.error("Error sending to Google Sheets", error);
-      });
+      const queued =
+        typeof navigator.sendBeacon === "function" &&
+        navigator.sendBeacon(
+          GOOGLE_SCRIPT_URL,
+          new Blob([payload], { type: "text/plain;charset=UTF-8" }),
+        );
+
+      if (!queued) {
+        fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          mode: "no-cors",
+          body: payload,
+          keepalive: true,
+        }).catch((error) => {
+          console.error("Error sending to Google Sheets", error);
+        });
+      }
     }
 
     // --- WhatsApp Logic (Existing) ---
@@ -200,8 +253,9 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                     value={formData.fullName}
                     onChange={handleChange}
                     onFocus={handleFocus}
-                    className="shadow-sm p-2 border border-gray-300 focus:border-red-500 rounded-md focus:ring-red-500 w-full"
+                    {...fieldProps("fullName")}
                   />
+                  <FieldError name="fullName" show={errors.fullName} />
                 </div>
 
                 {/* Nombre del Colegio/Instituto/Club */}
@@ -219,8 +273,9 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                     value={formData.institution}
                     onChange={handleChange}
                     onFocus={handleFocus}
-                    className="shadow-sm p-2 border border-gray-300 focus:border-red-500 rounded-md focus:ring-red-500 w-full"
+                    {...fieldProps("institution")}
                   />
+                  <FieldError name="institution" show={errors.institution} />
                 </div>
 
                 {/* Celular */}
@@ -238,8 +293,9 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                     value={formData.phone}
                     onChange={handleChange}
                     onFocus={handleFocus}
-                    className="shadow-sm p-2 border border-gray-300 focus:border-red-500 rounded-md focus:ring-red-500 w-full"
+                    {...fieldProps("phone")}
                   />
+                  <FieldError name="phone" show={errors.phone} />
                 </div>
               </div>
 
@@ -259,7 +315,7 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                     value={formData.inquirerType}
                     onChange={handleChange}
                     onFocus={handleFocus}
-                    className="shadow-sm p-2 border border-gray-300 rounded-md w-full h-[42px]"
+                    {...fieldProps("inquirerType", "h-[42px]")}
                   >
                     <option value="" disabled>
                       Selecciona una opción
@@ -268,6 +324,7 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                     <option value="Alumno">Alumno</option>
                     <option value="Docente">Docente</option>
                   </select>
+                  <FieldError name="inquirerType" show={errors.inquirerType} />
                 </div>
 
                 {/* Localidad */}
@@ -285,8 +342,9 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                     value={formData.location}
                     onChange={handleChange}
                     onFocus={handleFocus}
-                    className="shadow-sm p-2 border border-gray-300 focus:border-red-500 rounded-md focus:ring-red-500 w-full"
+                    {...fieldProps("location")}
                   />
+                  <FieldError name="location" show={errors.location} />
                 </div>
 
                 {/* Mail */}
@@ -304,8 +362,9 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                     value={formData.email}
                     onChange={handleChange}
                     onFocus={handleFocus}
-                    className="shadow-sm p-2 border border-gray-300 focus:border-red-500 rounded-md focus:ring-red-500 w-full"
+                    {...fieldProps("email")}
                   />
+                  <FieldError name="email" show={errors.email} />
                 </div>
               </div>
             </div>
@@ -325,9 +384,21 @@ ${utmData.current.ad ? `\n*Vengo del anuncio:* ${utmData.current.ad}` : ""}
                 value={formData.message}
                 onChange={handleChange}
                 onFocus={handleFocus}
-                className="shadow-sm p-2 border border-gray-300 focus:border-red-500 rounded-md focus:ring-red-500 w-full"
+                {...fieldProps("message")}
               />
+              <FieldError name="message" show={errors.message} />
             </div>
+
+            {/* What's still missing, right above the button */}
+            {missingLabels.length > 0 && (
+              <p
+                role="alert"
+                className="bg-red-50 p-3 border border-red-300 rounded-md text-red-700 text-sm"
+              >
+                Para enviar tu consulta falta completar:{" "}
+                <strong>{missingLabels.join(", ")}</strong>
+              </p>
+            )}
 
             {/* Submit Button */}
             <div>
